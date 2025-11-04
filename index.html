@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unicom Chat Visualizador</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <img src="logo-unicom.png" alt="Unicom" style="height: 2rem; width: auto;">
+                <h1>Unicom Chat Visualizador</h1>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2><i class="fas fa-users"></i> Contactos</h2>
+                    <button id="refreshContacts" class="refresh-btn" title="Actualizar contactos">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+                <div class="search-container">
+                    <input type="text" id="searchContacts" placeholder="Buscar contacto..." class="search-input">
+                    <i class="fas fa-search search-icon"></i>
+                </div>
+                <div id="contactsList" class="contacts-list">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Cargando contactos...</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Area -->
+            <main class="chat-area">
+                <div id="welcomeScreen" class="welcome-screen">
+                    <div class="welcome-content">
+                        <img src="logo-unicom.png" alt="Unicom" style="height: 4rem; width: auto; margin-bottom: 1rem;">
+                        <h2>Bienvenido al Visualizador de Chats</h2>
+                        <p>Selecciona un contacto del menú lateral para ver la conversación</p>
+                    </div>
+                </div>
+
+                <div id="chatContainer" class="chat-container" style="display: none;">
+                    <!-- Chat Header -->
+                    <div class="chat-header">
+                        <div class="contact-info">
+                            <div class="contact-avatar">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="contact-details">
+                                <h3 id="currentContactName"></h3>
+                                <span id="currentContactNumber"></span>
+                            </div>
+                        </div>
+                        <div class="chat-actions">
+                            <button id="refreshChat" class="action-btn" title="Actualizar chat">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                            <button id="exportChat" class="action-btn" title="Exportar chat">
+                                <i class="fas fa-download"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Messages Area -->
+                    <div id="messagesContainer" class="messages-container">
+                        <div class="loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>Cargando mensajes...</span>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-exclamation-triangle"></i> Error</h3>
+                <button class="close-btn" onclick="closeErrorModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="errorMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeErrorModal()" class="btn btn-primary">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        // Script de diagnóstico para CORS y debugging
+        window.addEventListener('load', function() {
+            console.log('🚀 Aplicación Unicom cargada en:', window.location.href);
+            console.log('📡 Endpoint de contactos:', 'https://n8n.uni.uy/webhook/3b5f9ce4-3482-4077-aa8c-cb0def78dd4a');
+            console.log('💬 Endpoint de mensajes:', 'https://n8n.uni.uy/webhook/a7e6d994-fe18-4b68-8d47-cba715c349c4');
+            
+            // Agregar botón de diagnóstico temporal
+            setTimeout(() => {
+                const diagButton = document.createElement('button');
+                diagButton.innerHTML = '🔍 Diagnóstico CORS';
+                diagButton.style.cssText = `
+                    position: fixed;
+                    top: 10px;
+                    right: 10px;
+                    z-index: 9999;
+                    background: #FF5A46;
+                    color: white;
+                    border: none;
+                    padding: 10px;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-size: 12px;
+                `;
+                diagButton.onclick = async function() {
+                    console.log('🔍 Ejecutando diagnóstico...');
+                    try {
+                        const testResponse = await fetch('https://n8n.uni.uy/webhook/3b5f9ce4-3482-4077-aa8c-cb0def78dd4a');
+                        console.log('✅ Respuesta exitosa:', testResponse.status);
+                        const data = await testResponse.json();
+                        console.log('📊 Datos recibidos:', data);
+                        alert('✅ Conexión exitosa! Revisa la consola para más detalles.');
+                    } catch (error) {
+                        console.error('❌ Error en diagnóstico:', error);
+                        alert('❌ Error de conexión: ' + error.message);
+                    }
+                };
+                document.body.appendChild(diagButton);
+            }, 2000);
+        });
+    </script>
+</body>
+</html>
