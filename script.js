@@ -162,21 +162,25 @@ async function loadContacts() {
 
 // Obtener contactos de prueba
 function getTestContacts() {
+    const now = new Date();
     return [
         {
             number: '59896243943',
             displayName: '+598 9624 3943',
-            lastActivity: new Date().toISOString()
+            hasName: false,
+            lastActivity: new Date(now - 5 * 60 * 1000).toISOString() // 5 minutos atrás
         },
         {
             number: '59812345678',
             displayName: '+598 1234 5678',
-            lastActivity: new Date().toISOString()
+            hasName: false,
+            lastActivity: new Date(now - 2 * 60 * 60 * 1000).toISOString() // 2 horas atrás
         },
         {
             number: '59898765432',
             displayName: '+598 9876 5432',
-            lastActivity: new Date().toISOString()
+            hasName: false,
+            lastActivity: new Date(now - 24 * 60 * 60 * 1000).toISOString() // 1 día atrás
         }
     ];
 }
@@ -193,23 +197,34 @@ function processContactsData(data) {
             if (typeof item === 'object' && item !== null) {
                 // Iterar sobre cada key del objeto
                 Object.keys(item).forEach(key => {
-                    const phoneNumber = formatPhoneNumber(key);
-                    if (phoneNumber && phoneNumber.length >= 8) {
-                        console.log('Encontrado número de teléfono:', phoneNumber);
+                    // La key puede ser "59896243943" o "59896243943 | Lucas Perazzo"
+                    const { number, name } = parseContactKey(key);
+                    
+                    if (number && number.length >= 8) {
+                        // Obtener el último mensaje para extraer la fecha
+                        const messages = item[key];
+                        const lastMessageDate = getLastMessageDate(messages);
+                        
+                        console.log(`📱 Procesando contacto: "${key}" -> Número: ${number}, Nombre: ${name || 'Sin nombre'}, Último mensaje: ${lastMessageDate}`);
+                        
                         contacts.push({
-                            number: phoneNumber,
-                            displayName: formatDisplayName(phoneNumber),
-                            lastActivity: new Date().toISOString()
+                            number: number,
+                            displayName: name || formatDisplayName(number),
+                            hasName: !!name,
+                            originalKey: key,
+                            lastActivity: lastMessageDate
                         });
                     }
                 });
             } else if (typeof item === 'string' || typeof item === 'number') {
                 // Si el elemento del array es directamente un número
-                const phoneNumber = formatPhoneNumber(item);
-                if (phoneNumber && phoneNumber.length >= 8) {
+                const { number, name } = parseContactKey(item);
+                if (number && number.length >= 8) {
                     contacts.push({
-                        number: phoneNumber,
-                        displayName: formatDisplayName(phoneNumber),
+                        number: number,
+                        displayName: name || formatDisplayName(number),
+                        hasName: !!name,
+                        originalKey: item,
                         lastActivity: new Date().toISOString()
                     });
                 }
@@ -217,6 +232,10 @@ function processContactsData(data) {
         });
         
         console.log('Contactos procesados desde array:', contacts);
+        
+        // Ordenar contactos por fecha del último mensaje (más reciente primero)
+        contacts.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+        
         return contacts;
     }
     
@@ -225,6 +244,7 @@ function processContactsData(data) {
         return data.contacts.map(contact => ({
             number: formatPhoneNumber(contact.number || contact.wa_id || contact.phone),
             displayName: formatDisplayName(contact.number || contact.wa_id || contact.phone),
+            hasName: false,
             lastActivity: contact.lastActivity || new Date().toISOString()
         }));
     }
@@ -235,23 +255,127 @@ function processContactsData(data) {
         
         // Iterar sobre las keys del objeto
         Object.keys(data).forEach(key => {
-            // La key es el número de teléfono
-            const phoneNumber = formatPhoneNumber(key);
-            if (phoneNumber && phoneNumber.length >= 8) {
+            // La key puede ser "59896243943" o "59896243943 | Lucas Perazzo"
+            const { number, name } = parseContactKey(key);
+            if (number && number.length >= 8) {
+                // Obtener el último mensaje para extraer la fecha
+                const messages = data[key];
+                const lastMessageDate = getLastMessageDate(messages);
+                
                 contacts.push({
-                    number: phoneNumber,
-                    displayName: formatDisplayName(phoneNumber),
-                    lastActivity: new Date().toISOString()
+                    number: number,
+                    displayName: name || formatDisplayName(number),
+                    hasName: !!name,
+                    originalKey: key,
+                    lastActivity: lastMessageDate
                 });
             }
         });
         
         console.log('Contactos procesados desde objeto:', contacts);
+        
+        // Ordenar contactos por fecha del último mensaje (más reciente primero)
+        contacts.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+        
         return contacts;
     }
 
     console.log('No se pudo procesar el formato de datos');
     return [];
+}
+
+// Obtener la fecha del último mensaje de un array de mensajes
+function getLastMessageDate(messages) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+        return new Date().toISOString();
+    }
+    
+    // Buscar el mensaje más reciente con timestamp
+    let latestTimestamp = null;
+    
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const message = messages[i];
+        const messageText = message.mensaje || message.message || message.text || message;
+        
+        // Extraer timestamp del mensaje
+        const { timestamp } = extractTimestampFromMessage(messageText);
+        
+        if (timestamp) {
+            if (!latestTimestamp || new Date(timestamp) > new Date(latestTimestamp)) {
+                latestTimestamp = timestamp;
+            }
+        }
+    }
+    
+    // Si no se encontró ningún timestamp válido, usar la fecha actual
+    const finalDate = latestTimestamp || new Date().toISOString();
+    console.log(`📅 Último mensaje del contacto: ${finalDate}`);
+    
+    return finalDate;
+}
+
+// Parsear key del contacto (puede ser "59896243943" o "59896243943 | Lucas Perazzo")
+function parseContactKey(key) {
+    if (!key) return { number: '', name: null };
+    
+    const keyStr = key.toString().trim();
+    
+    // Verificar si contiene el separador " | "
+    if (keyStr.includes(' | ')) {
+        const parts = keyStr.split(' | ');
+        const number = formatPhoneNumber(parts[0]);
+        const name = parts[1].trim();
+        
+        console.log(`🔍 Key con nombre: "${keyStr}" -> Número: "${number}", Nombre: "${name}"`);
+        
+        return {
+            number: number,
+            name: name
+        };
+    } else {
+        // Solo es el número
+        const number = formatPhoneNumber(keyStr);
+        
+        console.log(`🔍 Key sin nombre: "${keyStr}" -> Número: "${number}"`);
+        
+        return {
+            number: number,
+            name: null
+        };
+    }
+}
+
+// Formatear tiempo del último mensaje para la lista de contactos
+function formatLastMessageTime(timestamp) {
+    try {
+        const messageDate = new Date(timestamp);
+        const now = new Date();
+        
+        // Calcular diferencia en minutos
+        const diffMs = now - messageDate;
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMinutes / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        
+        if (diffMinutes < 1) {
+            return 'Ahora';
+        } else if (diffMinutes < 60) {
+            return `${diffMinutes}m`;
+        } else if (diffHours < 24) {
+            return `${diffHours}h`;
+        } else if (diffDays < 7) {
+            return `${diffDays}d`;
+        } else {
+            // Mostrar fecha
+            return messageDate.toLocaleDateString('es-ES', { 
+                day: '2-digit', 
+                month: '2-digit' 
+            });
+        }
+    } catch (error) {
+        console.error('Error formateando tiempo del último mensaje:', error);
+        return '';
+    }
 }
 
 // Formatear número de teléfono
@@ -318,14 +442,25 @@ function renderContacts() {
 
     const contactsHTML = appState.contacts.map(contact => {
         console.log('Renderizando contacto:', contact);
+        
+        // Determinar qué mostrar en el nombre y en el subtítulo
+        const primaryText = contact.hasName ? contact.displayName : formatDisplayName(contact.number);
+        const secondaryText = contact.hasName ? formatDisplayName(contact.number) : contact.number;
+        
+        // Formatear fecha del último mensaje
+        const lastMessageTime = formatLastMessageTime(contact.lastActivity);
+        
         return `
             <div class="contact-item" onclick="selectContact('${contact.number}')">
                 <div class="contact-avatar">
                     <i class="fas fa-user"></i>
                 </div>
                 <div class="contact-info">
-                    <h4>${contact.displayName}</h4>
-                    <span>${contact.number}</span>
+                    <div class="contact-main">
+                        <h4>${primaryText}</h4>
+                        <span class="contact-time">${lastMessageTime}</span>
+                    </div>
+                    <div class="contact-number">${secondaryText}</div>
                 </div>
             </div>
         `;
@@ -343,7 +478,7 @@ function filterContacts(searchTerm) {
     contactItems.forEach(item => {
         const contactInfo = item.querySelector('.contact-info');
         const name = contactInfo.querySelector('h4').textContent.toLowerCase();
-        const number = contactInfo.querySelector('span').textContent.toLowerCase();
+        const number = contactInfo.querySelector('.contact-number').textContent.toLowerCase();
         
         const matches = name.includes(term) || number.includes(term);
         item.style.display = matches ? 'flex' : 'none';
@@ -367,7 +502,7 @@ async function selectContact(contactNumber) {
     
     // Buscar el elemento clickeado y marcarlo como activo
     contactItems.forEach(item => {
-        const numberSpan = item.querySelector('.contact-info span');
+        const numberSpan = item.querySelector('.contact-info .contact-number');
         if (numberSpan && numberSpan.textContent === contactNumber) {
             item.classList.add('active');
         }
@@ -379,8 +514,12 @@ async function selectContact(contactNumber) {
     // Mostrar información del contacto
     const contact = appState.contacts.find(c => c.number === contactNumber);
     if (contact) {
-        elements.currentContactName.textContent = contact.displayName;
-        elements.currentContactNumber.textContent = contact.number;
+        // Mostrar el nombre si está disponible, sino el número formateado
+        const displayName = contact.hasName ? contact.displayName : formatDisplayName(contact.number);
+        const displayNumber = contact.hasName ? formatDisplayName(contact.number) : contact.number;
+        
+        elements.currentContactName.textContent = displayName;
+        elements.currentContactNumber.textContent = displayNumber;
         console.log('Contacto encontrado:', contact);
     } else {
         console.warn('Contacto no encontrado en el estado:', contactNumber);
@@ -402,8 +541,13 @@ async function loadMessages(contactNumber) {
     showMessagesLoading();
 
     try {
-        const url = `${CONFIG.MESSAGES_ENDPOINT}?wa_id=${contactNumber}`;
+        // Buscar el contacto para obtener la originalKey si está disponible
+        const contact = appState.contacts.find(c => c.number === contactNumber);
+        const waId = contact && contact.originalKey ? contact.originalKey : contactNumber;
+        
+        const url = `${CONFIG.MESSAGES_ENDPOINT}?wa_id=${encodeURIComponent(waId)}`;
         console.log('Cargando mensajes desde:', url);
+        console.log('wa_id usado:', waId);
         console.log('Origen de la petición:', window.location.origin);
         
         const response = await fetch(url, {
@@ -809,8 +953,42 @@ window.debugApp = {
         console.log('🧪 Probando mensajes de ejemplo...');
         testMessages.forEach((msg, index) => {
             console.log(`\n--- Mensaje ${index + 1} ---`);
-            debugApp.testTimestampExtraction(msg);
+            window.debugApp.testTimestampExtraction(msg);
         });
+    },
+    testContactFormat: () => {
+        // Probar con el nuevo formato de contactos
+        const testData = [
+            {
+                "59896243943 | Lucas Perazzo": [
+                    "Ayudame para saber como voy a instalar esas maquinotas en mi casa °1762348741923",
+                    "Lucas, de eso no te preocupes. Los equipos llegan listos para usar, no requieren instalación ni armado complejo.\n\nQuedo a la orden. °1762348753041"
+                ]
+            },
+            {
+                "59812345678": [
+                    "Hola, me interesa el producto °1762348700000"
+                ]
+            },
+            {
+                "59898765432 | María García": [
+                    "Buenos días °1762300000000",
+                    "Hola María! ¿En qué te puedo ayudar? °1762300060000",
+                    "Quisiera información sobre los precios °1762348800000"
+                ]
+            }
+        ];
+        
+        console.log('🧪 Probando nuevo formato de contactos con ordenamiento...');
+        const processedContacts = processContactsData(testData);
+        console.log('📊 Contactos procesados y ordenados:', processedContacts);
+        
+        // Mostrar el orden de las fechas
+        processedContacts.forEach((contact, index) => {
+            console.log(`${index + 1}. ${contact.displayName} - Último mensaje: ${formatLastMessageTime(contact.lastActivity)} (${contact.lastActivity})`);
+        });
+        
+        return processedContacts;
     }
 };
 
