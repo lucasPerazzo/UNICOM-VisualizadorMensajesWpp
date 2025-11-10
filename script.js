@@ -1,7 +1,7 @@
 // Configuración de la aplicación
 const CONFIG = {
-    CONTACTS_ENDPOINT: 'https://n8n.uni.uy/webhook/3b5f9ce4-3482-4077-aa8c-cb0def78dd4a',
-    MESSAGES_ENDPOINT: 'https://n8n.uni.uy/webhook/a7e6d994-fe18-4b68-8d47-cba715c349c4'
+    CONTACTS_ENDPOINT: 'https://n8n.uni.uy/webhook/836a0458-afca-49cf-89ce-52175df68f22',
+    MESSAGES_ENDPOINT: 'https://n8n.uni.uy/webhook/53a9274e-e3a7-4003-b100-c2dfc5a6477a'
 };
 
 // Estado de la aplicación
@@ -26,7 +26,8 @@ const elements = {
     refreshChat: document.getElementById('refreshChat'),
     exportChat: document.getElementById('exportChat'),
     errorModal: document.getElementById('errorModal'),
-    errorMessage: document.getElementById('errorMessage')
+    errorMessage: document.getElementById('errorMessage'),
+    autoRefreshStatus: document.getElementById('autoRefreshStatus')
 };
 
 // Inicialización de la aplicación
@@ -112,7 +113,21 @@ async function loadContacts() {
         console.log('Response headers:', response.headers);
 
         if (!response.ok) {
-            throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
+            // Intentar leer la respuesta de error para obtener más detalles
+            let errorDetails = `Error HTTP: ${response.status} - ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.message) {
+                    errorDetails += ` - ${errorData.message}`;
+                }
+                if (errorData.hint) {
+                    errorDetails += ` - ${errorData.hint}`;
+                }
+                console.error('Detalles del error del servidor:', errorData);
+            } catch (e) {
+                console.log('No se pudo leer el detalle del error como JSON');
+            }
+            throw new Error(errorDetails);
         }
 
         const data = await response.json();
@@ -142,10 +157,16 @@ async function loadContacts() {
         console.error('Tipo de error:', error.name);
         console.error('Mensaje de error:', error.message);
         
-        // Verificar si es un error de CORS
+        // Detectar tipos específicos de errores
         if (error.message.includes('CORS') || error.message.includes('fetch')) {
             console.error('❌ Error de CORS detectado');
             showError('Error de CORS: El servidor necesita permitir peticiones desde localhost. Usando contactos de prueba.');
+        } else if (error.message.includes('404') || error.message.includes('not registered')) {
+            console.error('❌ Webhook no encontrado o inactivo');
+            showError('El webhook de contactos no está activo o no existe. Verifica que el flujo de trabajo en n8n esté activo. Usando contactos de prueba.');
+        } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+            console.error('❌ Error de conexión de red');
+            showError('Error de conexión: No se puede conectar al servidor. Verifica tu conexión a internet. Usando contactos de prueba.');
         } else {
             showError(`Error al cargar contactos: ${error.message}. Mostrando contactos de prueba.`);
         }
@@ -642,11 +663,18 @@ function extractTimestampFromMessage(messageText) {
     const timestampMatch = messageText.match(/^(.*?)\s*°(\d+)\s*$/s);
     
     if (timestampMatch) {
-        const text = timestampMatch[1].trim(); // Texto sin el timestamp
+        let text = timestampMatch[1].trim(); // Texto sin el timestamp
         const timestampStr = timestampMatch[2]; // Timestamp como string
         
+        // Remover prefijo "Cliente:" o "IA:" del texto para mostrar solo el contenido
+        if (text.startsWith('Cliente:')) {
+            text = text.substring(8).trim(); // Remover "Cliente:" (8 caracteres)
+        } else if (text.startsWith('IA:')) {
+            text = text.substring(3).trim(); // Remover "IA:" (3 caracteres)
+        }
+        
         console.log(`🔍 Mensaje original: "${messageText}"`);
-        console.log(`📝 Texto extraído: "${text}"`);
+        console.log(`📝 Texto extraído (sin prefijo): "${text}"`);
         console.log(`⏰ Timestamp raw: "${timestampStr}"`);
         
         // Convertir timestamp a Date
@@ -674,9 +702,17 @@ function extractTimestampFromMessage(messageText) {
         };
     } else {
         // Si no hay timestamp, usar timestamp actual
+        let cleanText = messageText;
+        // Remover prefijo también en caso de fallback
+        if (cleanText.startsWith('Cliente:')) {
+            cleanText = cleanText.substring(8).trim();
+        } else if (cleanText.startsWith('IA:')) {
+            cleanText = cleanText.substring(3).trim();
+        }
+        
         console.log('❌ No se encontró timestamp en el mensaje:', messageText.substring(0, 50) + '...');
         return {
-            text: messageText,
+            text: cleanText,
             timestamp: new Date().toISOString()
         };
     }
@@ -684,14 +720,20 @@ function extractTimestampFromMessage(messageText) {
 
 // Determinar tipo de mensaje (enviado/recibido)
 function determineMessageType(message, index) {
-    // Los mensajes alternan: cliente, IA, cliente, IA...
-    // Índice par (0, 2, 4...) = cliente (received)
-    // Índice impar (1, 3, 5...) = IA/bot (sent)
-    
     const text = message.mensaje || message.message || message.text || '';
-    console.log(`Mensaje ${index}: "${text.substring(0, 50)}..." -> ${index % 2 === 0 ? 'CLIENTE' : 'IA'}`);
     
-    return index % 2 === 0 ? 'received' : 'sent';
+    // Verificar si el mensaje tiene prefijo "Cliente:" o "IA:"
+    if (text.startsWith('Cliente:')) {
+        console.log(`Mensaje ${index}: "${text.substring(0, 50)}..." -> CLIENTE (received)`);
+        return 'received';
+    } else if (text.startsWith('IA:')) {
+        console.log(`Mensaje ${index}: "${text.substring(0, 50)}..." -> IA (sent)`);
+        return 'sent';
+    } else {
+        // Fallback al método anterior si no hay prefijo
+        console.log(`Mensaje ${index}: "${text.substring(0, 50)}..." -> ${index % 2 === 0 ? 'CLIENTE' : 'IA'} (fallback)`);
+        return index % 2 === 0 ? 'received' : 'sent';
+    }
 }
 
 // Mostrar loading en mensajes
@@ -920,18 +962,111 @@ window.debugApp = {
         }
     },
     testContactsEndpoint: async () => {
+        console.log('🔍 Probando endpoint de contactos...');
+        console.log('📡 URL:', CONFIG.CONTACTS_ENDPOINT);
+        
         try {
-            console.log('Probando endpoint de contactos...');
-            const response = await fetch(CONFIG.CONTACTS_ENDPOINT);
+            const response = await fetch(CONFIG.CONTACTS_ENDPOINT, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors'
+            });
+            
+            console.log('📊 Status:', response.status);
+            console.log('📊 Status Text:', response.statusText);
+            console.log('📊 Headers:', [...response.headers.entries()]);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ Error response body:', errorText);
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    console.error('❌ Error details:', errorJson);
+                    return { error: true, status: response.status, details: errorJson };
+                } catch (e) {
+                    return { error: true, status: response.status, message: errorText };
+                }
+            }
+            
             const data = await response.json();
-            console.log('Respuesta del endpoint de contactos:', data);
-            console.log('Claves del objeto:', Object.keys(data));
-            console.log('Contactos procesados:', processContactsData(data));
-            return data;
+            console.log('✅ Respuesta exitosa:', data);
+            console.log('📋 Tipo de datos:', typeof data);
+            console.log('📋 Es array:', Array.isArray(data));
+            if (typeof data === 'object') {
+                console.log('📋 Claves:', Object.keys(data));
+            }
+            
+            const processedContacts = processContactsData(data);
+            console.log('👥 Contactos procesados:', processedContacts);
+            
+            return { error: false, data: data, processedContacts: processedContacts };
         } catch (error) {
-            console.error('Error al probar endpoint de contactos:', error);
-            return null;
+            console.error('❌ Error de red/CORS:', error);
+            console.error('❌ Tipo de error:', error.name);
+            console.error('❌ Mensaje:', error.message);
+            return { error: true, networkError: true, details: error.message };
         }
+    },
+    testMessagesEndpoint: async (contactNumber = '59896243943') => {
+        console.log('🔍 Probando endpoint de mensajes...');
+        console.log('📡 URL:', CONFIG.MESSAGES_ENDPOINT);
+        console.log('📞 Contacto:', contactNumber);
+        
+        try {
+            const response = await fetch(CONFIG.MESSAGES_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                mode: 'cors',
+                body: JSON.stringify({ contacto: contactNumber })
+            });
+            
+            console.log('📊 Status:', response.status);
+            console.log('📊 Status Text:', response.statusText);
+            console.log('📊 Headers:', [...response.headers.entries()]);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ Error response body:', errorText);
+                return { error: true, status: response.status, message: errorText };
+            }
+            
+            const data = await response.json();
+            console.log('✅ Respuesta de mensajes:', data);
+            console.log('📋 Cantidad de mensajes:', Array.isArray(data) ? data.length : 'No es array');
+            
+            return { error: false, data: data };
+        } catch (error) {
+            console.error('❌ Error al probar mensajes:', error);
+            return { error: true, networkError: true, details: error.message };
+        }
+    },
+    testBothEndpoints: async () => {
+        console.log('🧪 === DIAGNÓSTICO COMPLETO DE ENDPOINTS ===\n');
+        
+        console.log('1️⃣ Probando endpoint de CONTACTOS...');
+        const contactsResult = await window.debugApp.testContactsEndpoint();
+        
+        console.log('\n2️⃣ Probando endpoint de MENSAJES...');
+        const messagesResult = await window.debugApp.testMessagesEndpoint();
+        
+        console.log('\n📋 === RESUMEN DEL DIAGNÓSTICO ===');
+        console.log('Contactos:', contactsResult.error ? '❌ FALLO' : '✅ OK');
+        console.log('Mensajes:', messagesResult.error ? '❌ FALLO' : '✅ OK');
+        
+        if (contactsResult.error) {
+            console.log('🔧 Contactos - Problema detectado:', contactsResult.details || contactsResult.message);
+        }
+        if (messagesResult.error) {
+            console.log('🔧 Mensajes - Problema detectado:', messagesResult.details || messagesResult.message);
+        }
+        
+        return { contacts: contactsResult, messages: messagesResult };
     },
     testTimestampExtraction: (messageText) => {
         console.log('🧪 Probando extracción de timestamp...');
@@ -944,16 +1079,23 @@ window.debugApp = {
         return result;
     },
     testMessages: () => {
-        // Probar con mensajes de ejemplo
+        // Probar con mensajes de ejemplo en el nuevo formato
         const testMessages = [
-            "Me encantaria per antes me gustaria saber realmente como son los productos que venden, muy brevemente °1762290761",
-            "Dale, Lucas. Te cuento rápido:\n\nTenemos tres gimnasios inteligentes. °1762290794949"
+            "Cliente: Perfecto, recordame las diferencias entre la speediance 1 y la 2 °1762460707810",
+            "IA: ¡Claro, Lucas! Te resumo las diferencias principales entre la *Gym Monster Pro* y la *Gym Monster 2*.\n\nLa *Gym Monster 2* es la versión más nueva y mejorada. Es más *liviana*, tiene un *mejor sistema de audio* con subwoofer, y *mucho más almacenamiento* (128GB vs 16GB), lo que la hace más fluida.\n\nAdemás, la Gym Monster 2 tiene una *altura extra* en la polea, pensada específicamente para que el ejercicio de remo sea más cómodo y efectivo. También cuenta con mejor conexión WiFi y un sistema de enfriamiento optimizado.\n\nBásicamente, la 2 es una evolución de la Pro con varias mejoras para que la experiencia sea superior.\n\nQuedo a la orden. °1762460721699",
+            "Cliente: me gustaria agendarme °1762460769942",
+            "IA: ¡Bárbaro! Podemos agendarte una visita a nuestro showroom en Constitución 1618 para que pruebes los equipos.\n\n¿Qué día y hora te queda bien? °1762460786271"
         ];
         
-        console.log('🧪 Probando mensajes de ejemplo...');
+        console.log('🧪 Probando mensajes de ejemplo con nuevo formato...');
         testMessages.forEach((msg, index) => {
             console.log(`\n--- Mensaje ${index + 1} ---`);
             window.debugApp.testTimestampExtraction(msg);
+            
+            // También probar el tipo de mensaje
+            const messageObj = { mensaje: msg };
+            const type = determineMessageType(messageObj, index);
+            console.log(`🎯 Tipo de mensaje detectado: ${type}`);
         });
     },
     testContactFormat: () => {
@@ -989,6 +1131,18 @@ window.debugApp = {
         });
         
         return processedContacts;
+    },
+    // Funciones de control del auto-refresh
+    startAutoRefresh: () => {
+        startAutoRefresh();
+        return 'Auto-refresh iniciado (cada 2 minutos)';
+    },
+    stopAutoRefresh: () => {
+        stopAutoRefresh();
+        return 'Auto-refresh detenido';
+    },
+    getAutoRefreshStatus: () => {
+        return autoRefreshInterval ? 'Auto-refresh ACTIVO (cada 2 minutos)' : 'Auto-refresh INACTIVO';
     }
 };
 
@@ -1021,6 +1175,75 @@ window.addEventListener('error', (event) => {
 
 window.addEventListener('unhandledrejection', (event) => {
     console.error('Promise rechazada:', event.reason);
+});
+
+// Auto-refresh cada 2 minutos para mantener datos actualizados
+let autoRefreshInterval = null;
+
+function startAutoRefresh() {
+    // Limpiar cualquier intervalo existente
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+    
+    // Configurar nuevo intervalo de 2 minutos (120,000 ms)
+    autoRefreshInterval = setInterval(() => {
+        // Solo hacer refresh si la página está visible (no minimizada o en otra pestaña)
+        if (!document.hidden) {
+            console.log('🔄 Auto-refresh activado - Recargando contactos...');
+            loadContacts();
+            
+            // Si hay un contacto seleccionado, también recargar sus mensajes
+            if (appState.currentContact) {
+                console.log('🔄 Auto-refresh - Recargando mensajes del contacto actual...');
+                loadMessages(appState.currentContact);
+            }
+        } else {
+            console.log('🔄 Auto-refresh omitido - Página no visible');
+        }
+    }, 120000); // 2 minutos = 120,000 milisegundos
+    
+    // Mostrar indicador visual
+    if (elements.autoRefreshStatus) {
+        elements.autoRefreshStatus.style.display = 'block';
+    }
+    
+    console.log('✅ Auto-refresh configurado: cada 2 minutos');
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+        
+        // Ocultar indicador visual
+        if (elements.autoRefreshStatus) {
+            elements.autoRefreshStatus.style.display = 'none';
+        }
+        
+        console.log('⏹️ Auto-refresh detenido');
+    }
+}
+
+// Pausar auto-refresh cuando la página no está visible
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        console.log('📱 Página oculta - Auto-refresh pausado');
+    } else {
+        console.log('📱 Página visible - Auto-refresh reanudado');
+    }
+});
+
+// Iniciar auto-refresh cuando la página esté completamente cargada
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        startAutoRefresh();
+    }, 5000); // Esperar 5 segundos después de cargar para empezar el auto-refresh
+});
+
+// Limpiar intervalo cuando se cierre la página
+window.addEventListener('beforeunload', () => {
+    stopAutoRefresh();
 });
 
 console.log('Script de WhatsApp Visualizador cargado correctamente');

@@ -23,9 +23,14 @@
             <aside class="sidebar">
                 <div class="sidebar-header">
                     <h2><i class="fas fa-users"></i> Contactos</h2>
-                    <button id="refreshContacts" class="refresh-btn" title="Actualizar contactos">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <small id="autoRefreshStatus" style="color: #6b7280; font-size: 0.7rem; display: none;">
+                            🔄 Auto-refresh: 2min
+                        </small>
+                        <button id="refreshContacts" class="refresh-btn" title="Actualizar contactos">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="search-container">
                     <input type="text" id="searchContacts" placeholder="Buscar contacto..." class="search-input">
@@ -104,8 +109,9 @@
         // Script de diagnóstico para CORS y debugging
         window.addEventListener('load', function() {
             console.log('🚀 Aplicación Unicom cargada en:', window.location.href);
-            console.log('📡 Endpoint de contactos:', 'https://n8n.uni.uy/webhook/3b5f9ce4-3482-4077-aa8c-cb0def78dd4a');
-            console.log('💬 Endpoint de mensajes:', 'https://n8n.uni.uy/webhook/a7e6d994-fe18-4b68-8d47-cba715c349c4');
+            console.log('📡 Endpoint de contactos:', 'https://n8n.uni.uy/webhook/836a0458-afca-49cf-89ce-52175df68f22');
+            console.log('💬 Endpoint de mensajes:', 'https://n8n.uni.uy/webhook/53a9274e-e3a7-4003-b100-c2dfc5a6477a');
+            console.log('🔄 Auto-refresh: Activado cada 2 minutos (cuando la página esté visible)');
             
             // Agregar botón de diagnóstico temporal
             setTimeout(() => {
