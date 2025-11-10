@@ -1132,17 +1132,9 @@ window.debugApp = {
         
         return processedContacts;
     },
-    // Funciones de control del auto-refresh
-    startAutoRefresh: () => {
-        startAutoRefresh();
-        return 'Auto-refresh iniciado (cada 2 minutos)';
-    },
-    stopAutoRefresh: () => {
-        stopAutoRefresh();
-        return 'Auto-refresh detenido';
-    },
+    // Solo función de consulta del auto-refresh (no control)
     getAutoRefreshStatus: () => {
-        return autoRefreshInterval ? 'Auto-refresh ACTIVO (cada 2 minutos)' : 'Auto-refresh INACTIVO';
+        return autoRefreshInterval ? 'Auto-refresh ACTIVO (cada 2 minutos - OBLIGATORIO)' : 'Auto-refresh INACTIVO (reiniciando...)';
     }
 };
 
@@ -1188,18 +1180,14 @@ function startAutoRefresh() {
     
     // Configurar nuevo intervalo de 2 minutos (120,000 ms)
     autoRefreshInterval = setInterval(() => {
-        // Solo hacer refresh si la página está visible (no minimizada o en otra pestaña)
-        if (!document.hidden) {
-            console.log('🔄 Auto-refresh activado - Recargando contactos...');
-            loadContacts();
-            
-            // Si hay un contacto seleccionado, también recargar sus mensajes
-            if (appState.currentContact) {
-                console.log('🔄 Auto-refresh - Recargando mensajes del contacto actual...');
-                loadMessages(appState.currentContact);
-            }
-        } else {
-            console.log('🔄 Auto-refresh omitido - Página no visible');
+        // Siempre hacer refresh, independientemente de si la página está visible
+        console.log('🔄 Auto-refresh activado - Recargando contactos...');
+        loadContacts();
+        
+        // Si hay un contacto seleccionado, también recargar sus mensajes
+        if (appState.currentContact) {
+            console.log('🔄 Auto-refresh - Recargando mensajes del contacto actual...');
+            loadMessages(appState.currentContact);
         }
     }, 120000); // 2 minutos = 120,000 milisegundos
     
@@ -1208,42 +1196,49 @@ function startAutoRefresh() {
         elements.autoRefreshStatus.style.display = 'block';
     }
     
-    console.log('✅ Auto-refresh configurado: cada 2 minutos');
+    console.log('✅ Auto-refresh configurado: cada 2 minutos (funciona en segundo plano)');
 }
 
+// Función privada para detener auto-refresh (solo para limpieza interna)
 function stopAutoRefresh() {
     if (autoRefreshInterval) {
         clearInterval(autoRefreshInterval);
         autoRefreshInterval = null;
-        
-        // Ocultar indicador visual
-        if (elements.autoRefreshStatus) {
-            elements.autoRefreshStatus.style.display = 'none';
-        }
-        
-        console.log('⏹️ Auto-refresh detenido');
+        console.log('⏹️ Auto-refresh detenido (solo para limpieza interna)');
     }
 }
 
-// Pausar auto-refresh cuando la página no está visible
+// Monitorear visibilidad de página (solo para logging)
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-        console.log('📱 Página oculta - Auto-refresh pausado');
+        console.log('📱 Página oculta - Auto-refresh continúa en segundo plano');
     } else {
-        console.log('📱 Página visible - Auto-refresh reanudado');
+        console.log('📱 Página visible - Auto-refresh activo');
     }
 });
+
+// Función para verificar y garantizar que el auto-refresh esté activo
+function ensureAutoRefreshActive() {
+    if (!autoRefreshInterval) {
+        console.log('⚠️ Auto-refresh no está activo - Reiniciando...');
+        startAutoRefresh();
+    }
+}
 
 // Iniciar auto-refresh cuando la página esté completamente cargada
 window.addEventListener('load', () => {
     setTimeout(() => {
         startAutoRefresh();
+        
+        // Verificar cada 30 segundos que el auto-refresh esté activo
+        setInterval(() => {
+            ensureAutoRefreshActive();
+        }, 30000); // 30 segundos
+        
     }, 5000); // Esperar 5 segundos después de cargar para empezar el auto-refresh
 });
 
-// Limpiar intervalo cuando se cierre la página
-window.addEventListener('beforeunload', () => {
-    stopAutoRefresh();
-});
+// El auto-refresh es obligatorio y no se detiene al cerrar la página
+// (Se limpiará automáticamente cuando el navegador cierre la pestaña)
 
 console.log('Script de WhatsApp Visualizador cargado correctamente');
